@@ -1,60 +1,98 @@
 import streamlit as st
+import pandas as pd
 import numpy as np
 import joblib
-
-# Load trained model
-model = joblib.load("xgboost_breast_cancer_model.pkl")
-
-st.set_page_config(
-    page_title="Breast Cancer Prediction",
-    layout="centered"
+import os
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.metrics import (
+    accuracy_score,
+    roc_auc_score,
+    precision_score,
+    recall_score,
+    f1_score,
+    matthews_corrcoef,
+    confusion_matrix
 )
 
-st.title("Breast Cancer Prediction System")
-st.write(
-    "This application predicts whether a breast tumor is Benign or Malignant "
-    "using a trained XGBoost classification model."
-)
+st.set_page_config(page_title="ML Classification App", layout="centered")
 
-st.markdown("---")
+st.title("Breast Cancer Classification using Machine Learning")
+st.write("This application evaluates multiple classification models on the Breast Cancer Wisconsin dataset.")
 
-# Feature names (30 features from Breast Cancer Wisconsin dataset)
-feature_names = [
-    "mean radius", "mean texture", "mean perimeter", "mean area",
-    "mean smoothness", "mean compactness", "mean concavity",
-    "mean concave points", "mean symmetry", "mean fractal dimension",
-    "radius error", "texture error", "perimeter error", "area error",
-    "smoothness error", "compactness error", "concavity error",
-    "concave points error", "symmetry error", "fractal dimension error",
-    "worst radius", "worst texture", "worst perimeter", "worst area",
-    "worst smoothness", "worst compactness", "worst concavity",
-    "worst concave points", "worst symmetry", "worst fractal dimension"
-]
 
-st.subheader("Input Feature Values")
+# -------------------------
+# Load Models
+# -------------------------
+models = {
+    "Logistic Regression": joblib.load("model/logistic.pkl"),
+    "Decision Tree": joblib.load("model/decision_tree.pkl"),
+    "KNN": joblib.load("model/knn.pkl"),
+    "Naive Bayes": joblib.load("model/naive_bayes.pkl"),
+    "Random Forest": joblib.load("model/random_forest.pkl"),
+    "XGBoost": joblib.load("model/xgboost.pkl"),
+}
 
-inputs = []
-for feature in feature_names:
-    value = st.number_input(
-        label=feature,
-        min_value=0.0,
-        format="%.6f"
-    )
-    inputs.append(value)
+# -------------------------
+# Model Selection
+# -------------------------
+selected_model_name = st.selectbox("Select Model", list(models.keys()))
+model = models[selected_model_name]
 
-input_array = np.array(inputs).reshape(1, -1)
+# -------------------------
+# File Upload
+# -------------------------
+uploaded_file = st.file_uploader("Upload Test CSV File", type=["csv"])
 
-st.markdown("---")
+if uploaded_file is not None:
+    data = pd.read_csv(uploaded_file)
 
-if st.button("Predict"):
-    prediction = model.predict(input_array)[0]
-    probabilities = model.predict_proba(input_array)[0]
+    st.write("Preview of Uploaded Data:")
+    st.dataframe(data.head())
 
-    if prediction == 1:
-        st.warning("Prediction Result: Malignant")
+    if "target" not in data.columns:
+        st.error("CSV must contain 'target' column.")
     else:
-        st.success("Prediction Result: Benign")
+        X = data.drop("target", axis=1)
+        y = data["target"]
 
-    st.write("Prediction Probabilities:")
-    st.write(f"Benign: {probabilities[0]:.4f}")
-    st.write(f"Malignant: {probabilities[1]:.4f}")
+        # Scaling for Logistic Regression and KNN
+        if selected_model_name in ["Logistic Regression", "KNN"]:
+            from sklearn.preprocessing import StandardScaler
+            scaler = StandardScaler()
+            X = scaler.fit_transform(X)
+
+        y_pred = model.predict(X)
+
+        if hasattr(model, "predict_proba"):
+            y_prob = model.predict_proba(X)[:, 1]
+            auc = roc_auc_score(y, y_prob)
+        else:
+            auc = "Not Available"
+
+        acc = accuracy_score(y, y_pred)
+        prec = precision_score(y, y_pred)
+        rec = recall_score(y, y_pred)
+        f1 = f1_score(y, y_pred)
+        mcc = matthews_corrcoef(y, y_pred)
+
+        st.subheader("Evaluation Metrics")
+
+        st.write(f"Accuracy: {acc:.4f}")
+        st.write(f"AUC: {auc}")
+        st.write(f"Precision: {prec:.4f}")
+        st.write(f"Recall: {rec:.4f}")
+        st.write(f"F1 Score: {f1:.4f}")
+        st.write(f"MCC: {mcc:.4f}")
+
+        # Confusion Matrix
+        st.subheader("Confusion Matrix")
+
+        cm = confusion_matrix(y, y_pred)
+
+        fig, ax = plt.subplots()
+        sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", ax=ax)
+        ax.set_xlabel("Predicted")
+        ax.set_ylabel("Actual")
+
+        st.pyplot(fig)
